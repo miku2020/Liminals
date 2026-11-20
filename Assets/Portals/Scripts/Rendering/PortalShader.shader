@@ -4,11 +4,15 @@ Shader "Custom/PortalShader"
     {
         [MainColor] _BaseColor("Base Color", Color) = (1, 1, 1, 1)
         [MainTexture] _BaseMap("Base Map", 2D) = "white" {}
+        _InactiveColor ("Inactive Color", Color) = (0, 0, 0, 1)
+        [HideInInspector] displayMask ("Display Mask", int) = 0
     }
 
     SubShader
     {
         Tags { "RenderType" = "Opaque" "RenderPipeline" = "UniversalPipeline" }
+        LOD 100
+        Cull Off
 
         Pass
         {
@@ -32,10 +36,13 @@ Shader "Custom/PortalShader"
 
             TEXTURE2D(_BaseMap);
             SAMPLER(sampler_BaseMap);
+            
 
             CBUFFER_START(UnityPerMaterial)
                 half4 _BaseColor;
                 float4 _BaseMap_ST;
+                float4 _InactiveColor;
+                int displayMask;
             CBUFFER_END
 
             Varyings vert(Attributes IN)
@@ -50,9 +57,10 @@ Shader "Custom/PortalShader"
             {
                 float2 screenSpaceUV = IN.screenPos.xy / IN.screenPos.w;
                 half4 color = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, screenSpaceUV) * _BaseColor;
-                return color;
+                return color * displayMask + _InactiveColor * (1-displayMask);
             }
             ENDHLSL
         }
     }
+    Fallback "Universal Render Pipeline/Lit"
 }

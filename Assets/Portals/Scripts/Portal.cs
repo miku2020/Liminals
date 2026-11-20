@@ -10,6 +10,11 @@ public class Portal : MonoBehaviour
     private Camera mainCam;
     private Camera portalCam;
     private RenderTexture portalTex;
+    [SerializeField] private int recursionLimit = 5;
+
+    [SerializeField] private float nearClipOffset = 0.05f;
+    [SerializeField] private float nearClipLimit = 0.2f;
+    private MeshFilter meshFilter;
 
     private void Awake()
     {   
@@ -17,7 +22,8 @@ public class Portal : MonoBehaviour
         portalCam = this.GetComponentInChildren<Camera>(true);
         portalCam.enabled = false;
         mesh = this.GetComponent<MeshRenderer>();
-        
+        meshFilter = this.GetComponent<MeshFilter>();
+        mesh.material.SetInt("displayMask", 1);
     }
 
     private void OnEnable()
@@ -43,12 +49,6 @@ public class Portal : MonoBehaviour
         }
     }
 
-    private static bool VisibleFromCamera(Renderer renderer, Camera camera)
-    {
-        Plane[] fustrumPlanes = GeometryUtility.CalculateFrustumPlanes(camera);
-        return GeometryUtility.TestPlanesAABB(fustrumPlanes, renderer.bounds);
-    }
-
     private void SetNearClipPlane()
     {
         Transform clipPlane = transform;
@@ -56,30 +56,72 @@ public class Portal : MonoBehaviour
 
         Vector3 camSpacePos = portalCam.worldToCameraMatrix.MultiplyPoint(clipPlane.position);
         Vector3 camSpaceNormal = portalCam.worldToCameraMatrix.MultiplyVector(clipPlane.forward) * dot;
-        float camSpaceDst = -Vector3.Dot(camSpacePos, camSpaceNormal);
-        Vector4 clipPlaneCameraSpace = new Vector4(camSpaceNormal.x, camSpaceNormal.y, camSpaceNormal.z, camSpaceDst);
-
-        portalCam.projectionMatrix = mainCam.CalculateObliqueMatrix(clipPlaneCameraSpace);
+        float camSpaceDst = -Vector3.Dot(camSpacePos, camSpaceNormal) + nearClipOffset;
+        
+        if (Math.Abs(camSpaceDst) > nearClipLimit)
+        {
+            Vector4 clipPlaneCameraSpace = new Vector4(camSpaceNormal.x, camSpaceNormal.y, camSpaceNormal.z, camSpaceDst);
+            portalCam.projectionMatrix = mainCam.CalculateObliqueMatrix(clipPlaneCameraSpace);
+        }
+        else portalCam.projectionMatrix = mainCam.projectionMatrix;
     }
 
     private void Render(ScriptableRenderContext SRC, Camera camera)
     {
-        if (!VisibleFromCamera(linked.mesh, camera)) return;
-        mesh.enabled = false;
+        if (!CameraUtility.VisibleFromCamera(linked.mesh, mainCam))
+        {
+            linked.mesh.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.ShadowsOnly;
+            return;
+        }
+
         CreateRenderTex();
 
-        var m = transform.localToWorldMatrix * linked.transform.worldToLocalMatrix * mainCam.transform.localToWorldMatrix;
-        portalCam.transform.SetPositionAndRotation(m.GetColumn(3), m.rotation);
+        var localToWorldMatrix = mainCam.transform.localToWorldMatrix;
+        var renderPositions = new Vector3[recursionLimit];
+        var renderRotations = new Quaternion[recursionLimit];
 
-
-        SetNearClipPlane();
-        UniversalRenderPipeline.SingleCameraRequest request = new();
-
-        if (RenderPipeline.SupportsRenderRequest(portalCam, request))
+        int startIndex = 0;
+        portalCam.projectionMatrix = mainCam.projectionMatrix;
+        for (int i = 0; i < recursionLimit; i++)
         {
-            request.destination = portalTex; 
-            RenderPipeline.SubmitRenderRequest(portalCam, request);
+            if (i > 0)
+            {
+                if (!CameraUtility.BoundsOverlap(meshFilter, linked.meshFilter, portalCam)) break;
+            }
+
+            localToWorldMatrix = transform.localToWorldMatrix * linked.transform.worldToLocalMatrix * localToWorldMatrix;
+            int renderOrderIndex = recursionLimit - i - 1;
+            renderPositions[renderOrderIndex] = localToWorldMatrix.GetColumn(3);
+            renderRotations[renderOrderIndex] = localToWorldMatrix.rotation;
+
+            portalCam.transform.SetPositionAndRotation(renderPositions[renderOrderIndex], renderRotations[renderOrderIndex]);
+            startIndex = renderOrderIndex;
         }
-        mesh.enabled = true;
+
+        mesh.shadowCastingMode = ShadowCastingMode.ShadowsOnly;
+        linked.mesh.material.SetInt("displayMask", 0);
+
+        for (int i = startIndex; i < recursionLimit; i++)
+        {
+            portalCam.transform.SetPositionAndRotation(renderPositions[i], renderRotations[i]);
+            SetNearClipPlane(); 
+
+
+            UniversalRenderPipeline.SingleCameraRequest request = new();
+            if (RenderPipeline.SupportsRenderRequest(portalCam, request))
+            {
+                request.destination = portalTex;
+                RenderPipeline.SubmitRenderRequest(portalCam, request);
+            }
+            else Debug.Log(portalCam.name + " doesn't suppost render request");
+
+            if (i == startIndex) linked.mesh.material.SetInt("displayMask", 1);
+        }
+        mesh.shadowCastingMode = ShadowCastingMode.On;
+    }
+
+    private void OnValidate()
+    {
+        if (linked != null) linked.linked = this;
     }
 }
