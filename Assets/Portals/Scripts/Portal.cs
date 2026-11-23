@@ -1,20 +1,23 @@
 using System;
+using System.Collections.Generic;
+using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 
 public class Portal : MonoBehaviour
 {
-    [SerializeField] private Portal linked;
+    [SerializeField] private Portal linked;    
+    [SerializeField] private int recursionLimit = 5;
+    [SerializeField] private float nearClipOffset = 0.05f;
+    [SerializeField] private float nearClipLimit = 0.2f;
+
+    private MeshFilter meshFilter;
     private MeshRenderer mesh;
     private Camera mainCam;
     private Camera portalCam;
     private RenderTexture portalTex;
-    [SerializeField] private int recursionLimit = 5;
-
-    [SerializeField] private float nearClipOffset = 0.05f;
-    [SerializeField] private float nearClipLimit = 0.2f;
-    private MeshFilter meshFilter;
+    private List<PortableObject> travellers = new();
 
     private void Awake()
     {   
@@ -49,6 +52,20 @@ public class Portal : MonoBehaviour
         }
     }
 
+    private float ProtectScreenFromClipping(Vector3 viewPoint)
+    {
+        float halfHeight = mainCam.nearClipPlane * Mathf.Tan(mainCam.fieldOfView * 0.5f * Mathf.Deg2Rad);
+        float halfWidth = halfHeight * mainCam.aspect;
+        float dstToNearClipPlaneCorner = new Vector3(halfWidth, halfHeight, mainCam.nearClipPlane).magnitude;
+        float screenThickness = dstToNearClipPlaneCorner;
+
+        Transform screenT = mesh.transform;
+        bool camFacingSameDirAsPortal = Vector3.Dot(transform.forward, transform.position - viewPoint) > 0;
+        screenT.localScale = new Vector3(screenT.localScale.x, screenT.localScale.y, screenThickness);
+        screenT.localPosition = Vector3.forward * screenThickness * ((camFacingSameDirAsPortal) ? 0.5f : -0.5f);
+        return screenThickness;
+    }
+
     private void SetNearClipPlane()
     {
         Transform clipPlane = transform;
@@ -70,7 +87,6 @@ public class Portal : MonoBehaviour
     {
         if (!CameraUtility.VisibleFromCamera(linked.mesh, mainCam))
         {
-            linked.mesh.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.ShadowsOnly;
             return;
         }
 
@@ -104,9 +120,11 @@ public class Portal : MonoBehaviour
         for (int i = startIndex; i < recursionLimit; i++)
         {
             portalCam.transform.SetPositionAndRotation(renderPositions[i], renderRotations[i]);
-            SetNearClipPlane(); 
+            SetNearClipPlane();
 
+            UniversalRenderPipeline.RenderSingleCamera(SRC, portalCam);
 
+            /* Doesn't Work with recursive portals
             UniversalRenderPipeline.SingleCameraRequest request = new();
             if (RenderPipeline.SupportsRenderRequest(portalCam, request))
             {
@@ -114,10 +132,63 @@ public class Portal : MonoBehaviour
                 RenderPipeline.SubmitRenderRequest(portalCam, request);
             }
             else Debug.Log(portalCam.name + " doesn't suppost render request");
+            */
 
-            if (i == startIndex) linked.mesh.material.SetInt("displayMask", 1);
+            if (i == startIndex) linked.mesh.material.SetInt("displayMask", 1); ;            
         }
         mesh.shadowCastingMode = ShadowCastingMode.On;
+    }
+
+    private void OnTriggerEnter(Collider other)
+    {
+        Debug.Log("Object " +  other.name + " enter trigger.");
+        var traveller = other.GetComponent<PortableObject>();
+        if (traveller) OnPortableEnter(traveller);
+    }
+
+    public void OnPortableEnter(PortableObject traveller)
+    {
+        if (!travellers.Contains(traveller))
+        {
+            traveller.EnterPortalCollider();
+            traveller.previousOffsetFromPortal = traveller.transform.position - transform.position;
+            travellers.Add(traveller);
+            Debug.Log(traveller.name + " enters portal.");
+        }
+    }
+
+    private void OnTriggerExit(Collider other)
+    {
+        Debug.Log("Object " + other.name + " exits trigger.");
+        var traveller = other.GetComponent<PortableObject>();
+        if (traveller && travellers.Contains(traveller))
+        {
+            traveller.ExitPortalCollider();
+            travellers.Remove(traveller);
+            Debug.Log(traveller.name + " exits portal.");
+        }
+    }
+
+    private void LateUpdate()
+    {
+        for (int i = 0; i < travellers.Count; i++)
+        {
+            PortableObject traveller = travellers[i];
+
+            Vector3 offsetFromPortal = traveller.transform.position - transform.position;
+            int portalSide = Math.Sign(Vector3.Dot(offsetFromPortal, transform.forward));
+            int portalSideOld = Math.Sign(Vector3.Dot(traveller.previousOffsetFromPortal, transform.forward));
+
+            if (portalSide != portalSideOld)
+            {
+                var m = linked.transform.localToWorldMatrix * transform.worldToLocalMatrix * traveller.transform.localToWorldMatrix;
+                traveller.Teleport(transform, linked.transform, m.GetColumn(3), m.rotation);
+
+                linked.OnPortableEnter(traveller);
+                travellers.Remove(traveller);
+                i--;
+            } else traveller.previousOffsetFromPortal = offsetFromPortal;
+        }
     }
 
     private void OnValidate()
