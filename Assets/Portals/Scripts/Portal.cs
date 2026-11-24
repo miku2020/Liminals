@@ -1,3 +1,9 @@
+/*
+File: Portal.cs
+Desc: Portal
+Auth: Semi
+*/
+
 using System;
 using System.Collections.Generic;
 using Unity.VisualScripting;
@@ -31,12 +37,16 @@ public class Portal : MonoBehaviour
 
     private void OnEnable()
     {
+        RenderPipelineManager.beginCameraRendering += PrePortalRender;
         RenderPipelineManager.beginCameraRendering += Render;
+        RenderPipelineManager.endCameraRendering += PostPortalRender;
     }
 
     private void OnDisable()
     {
+        RenderPipelineManager.beginCameraRendering -= PrePortalRender;
         RenderPipelineManager.beginCameraRendering -= Render;
+        RenderPipelineManager.endCameraRendering -= PostPortalRender;
     }
 
     private void CreateRenderTex()
@@ -52,6 +62,7 @@ public class Portal : MonoBehaviour
         }
     }
 
+    // Sets the thickness of the portal screen so as not to clip with camera near plane when player goes through
     private float ProtectScreenFromClipping(Vector3 viewPoint)
     {
         float halfHeight = mainCam.nearClipPlane * Mathf.Tan(mainCam.fieldOfView * 0.5f * Mathf.Deg2Rad);
@@ -62,10 +73,11 @@ public class Portal : MonoBehaviour
         Transform screenT = mesh.transform;
         bool camFacingSameDirAsPortal = Vector3.Dot(transform.forward, transform.position - viewPoint) > 0;
         screenT.localScale = new Vector3(screenT.localScale.x, screenT.localScale.y, screenThickness);
-        screenT.localPosition = Vector3.forward * screenThickness * ((camFacingSameDirAsPortal) ? 0.5f : -0.5f);
+        //screenT.localPosition = Vector3.forward * screenThickness * ((camFacingSameDirAsPortal) ? 0.5f : -0.5f);
         return screenThickness;
     }
 
+    // Use custom projection matrix to align portal camera's near clip plane with the surface of the portal
     private void SetNearClipPlane()
     {
         Transform clipPlane = transform;
@@ -81,6 +93,23 @@ public class Portal : MonoBehaviour
             portalCam.projectionMatrix = mainCam.CalculateObliqueMatrix(clipPlaneCameraSpace);
         }
         else portalCam.projectionMatrix = mainCam.projectionMatrix;
+    }
+
+    private void PrePortalRender(ScriptableRenderContext SRC, Camera camera)
+    {
+        foreach (var travlr in travellers)
+        {
+            UpdateSliceParams(travlr);
+        }
+    }
+
+    private void PostPortalRender(ScriptableRenderContext SRC, Camera camera)
+    {
+        foreach (var travlr in travellers)
+        {
+            UpdateSliceParams(travlr);
+        }
+        ProtectScreenFromClipping(mainCam.transform.position);
     }
 
     private void Render(ScriptableRenderContext SRC, Camera camera)
@@ -121,10 +150,11 @@ public class Portal : MonoBehaviour
         {
             portalCam.transform.SetPositionAndRotation(renderPositions[i], renderRotations[i]);
             SetNearClipPlane();
+            HandleClipping();
 
             UniversalRenderPipeline.RenderSingleCamera(SRC, portalCam);
 
-            /* Doesn't Work with recursive portals
+            /* Doesn't work properly with recursive portals
             UniversalRenderPipeline.SingleCameraRequest request = new();
             if (RenderPipeline.SupportsRenderRequest(portalCam, request))
             {
@@ -169,6 +199,68 @@ public class Portal : MonoBehaviour
         }
     }
 
+    private void HandleClipping()
+    {
+        const float hideDst = -1000;
+        const float showDst = 1000;
+        float portalThickness = linked.ProtectScreenFromClipping(portalCam.transform.position);
+
+        foreach (var traveller in travellers)
+        {
+            bool sameSidePortalAsCam = linked.PortalSide(PortalCamPos) == -PortalSide(traveller.transform.position);
+            traveller.SetSliceOffsetDst((sameSidePortalAsCam) ? hideDst : showDst, false);
+
+            int cloneLinkedPortalSide = -PortalSide(traveller.transform.position);
+            bool cloneSameSideAsCam = linked.PortalSide(PortalCamPos) == cloneLinkedPortalSide;
+
+            traveller.SetSliceOffsetDst((cloneSameSideAsCam) ? portalThickness : -portalThickness, true);
+        }
+
+        var camPortalOffset = PortalCamPos - transform.position;
+        foreach (var linkedTravlr in linked.travellers)
+        {
+            var travlrPos = linkedTravlr.graphicsObj.transform.position;
+            var clonePos = linkedTravlr.graphicsClone.transform.position;
+
+            bool cloneSameSideAsCam = linked.PortalSide(travlrPos) != PortalSide(PortalCamPos);
+            linkedTravlr.SetSliceOffsetDst((cloneSameSideAsCam) ? hideDst: showDst, true);
+
+            bool trvlrSameSideAsCam = linked.SameSideOfPortal(linkedTravlr.transform.position, PortalCamPos);
+            linkedTravlr.SetSliceOffsetDst((trvlrSameSideAsCam) ? portalThickness : -portalThickness, true);
+        }
+    }
+
+    private void UpdateSliceParams(PortableObject traveller)
+    {
+        int side = PortalSide(traveller.transform.position);
+        Vector3 sliceNormal = transform.forward * -side;
+        Vector2 cloneSliceNormal = linked.transform.forward * side;
+
+        Vector3 slicePos = transform.position;
+        Vector3 cloneSlicePos = linked.transform.position;
+
+        float sliceOffset = 0f;
+        float cloneSliceOffset = 0f;
+        float portalThickness = mesh.transform.localScale.z;
+
+        bool mainCamSameSideAsTrvlr = SameSideOfPortal(mainCam.transform.position, traveller.transform.position);
+        if (!mainCamSameSideAsTrvlr) sliceOffset = -portalThickness;
+
+        bool mainCamSameSideAsClone = side != linked.PortalSide(mainCam.transform.position);
+        if (!mainCamSameSideAsClone) cloneSliceOffset = -portalThickness;
+
+        for (int i = 0; i < traveller.materials.Length; i++)
+        {
+            traveller.materials[i].SetVector("sliceCentre", slicePos);
+            traveller.materials[i].SetVector("sliceNormal", sliceNormal);
+            traveller.materials[i].SetFloat("sliceOffset", sliceOffset);
+
+            traveller.cloneMaterials[i].SetVector("sliceCenter", cloneSlicePos);
+            traveller.cloneMaterials[i].SetVector("sliceNormal", cloneSliceNormal);
+            traveller.cloneMaterials[i].SetFloat("sliceOffset", cloneSliceOffset);
+        }
+    }
+
     private void LateUpdate()
     {
         for (int i = 0; i < travellers.Count; i++)
@@ -194,5 +286,17 @@ public class Portal : MonoBehaviour
     private void OnValidate()
     {
         if (linked != null) linked.linked = this;
+    }
+
+    private Vector3 PortalCamPos { get { return portalCam.transform.position;  }  }
+
+    private int PortalSide(Vector3 pos)
+    {
+        return Math.Sign(Vector3.Dot(pos-transform.position, transform.forward));
+    }
+
+    private bool SameSideOfPortal(Vector3 pos1, Vector3 pos2)
+    {
+        return PortalSide(pos1) == PortalSide(pos2);
     }
 }

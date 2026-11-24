@@ -1,5 +1,10 @@
-using UnityEngine;
+/*
+File: CameraUtility.cs
+Desc: Camera utility functions for portals
+Auth: Semi
+*/
 
+using UnityEngine;
 public static class CameraUtility
 {
     static readonly Vector3[] cubeCornerOffsets = {
