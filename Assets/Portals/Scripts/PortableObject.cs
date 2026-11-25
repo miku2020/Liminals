@@ -26,6 +26,9 @@ public class PortableObject : MonoBehaviour
         if (graphicsClone == null)
         {
             graphicsClone = Instantiate(graphicsObj);
+            Destroy(graphicsClone.GetComponent<Rigidbody>());
+            Destroy(graphicsClone.GetComponent<Collider>());
+            Destroy(graphicsClone.GetComponent<PortableObject>());
             graphicsClone.transform.parent = graphicsObj.transform.parent;
             graphicsClone.transform.localScale = graphicsObj.transform.localScale;
             materials = GetMaterials(graphicsObj);

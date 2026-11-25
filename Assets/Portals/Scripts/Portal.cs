@@ -73,7 +73,7 @@ public class Portal : MonoBehaviour
         Transform screenT = mesh.transform;
         bool camFacingSameDirAsPortal = Vector3.Dot(transform.forward, transform.position - viewPoint) > 0;
         screenT.localScale = new Vector3(screenT.localScale.x, screenT.localScale.y, screenThickness);
-        //screenT.localPosition = Vector3.forward * screenThickness * ((camFacingSameDirAsPortal) ? 0.5f : -0.5f);
+        screenT.localPosition = Vector3.forward * screenThickness * ((camFacingSameDirAsPortal) ? 0.5f : -0.5f);
         return screenThickness;
     }
 
@@ -207,7 +207,7 @@ public class Portal : MonoBehaviour
 
         foreach (var traveller in travellers)
         {
-            bool sameSidePortalAsCam = linked.PortalSide(PortalCamPos) == -PortalSide(traveller.transform.position);
+            bool sameSidePortalAsCam = linked.SameSideOfPortal(traveller.transform.position, PortalCamPos);
             traveller.SetSliceOffsetDst((sameSidePortalAsCam) ? hideDst : showDst, false);
 
             int cloneLinkedPortalSide = -PortalSide(traveller.transform.position);
@@ -223,10 +223,10 @@ public class Portal : MonoBehaviour
             var clonePos = linkedTravlr.graphicsClone.transform.position;
 
             bool cloneSameSideAsCam = linked.PortalSide(travlrPos) != PortalSide(PortalCamPos);
-            linkedTravlr.SetSliceOffsetDst((cloneSameSideAsCam) ? hideDst: showDst, true);
+            linkedTravlr.SetSliceOffsetDst((cloneSameSideAsCam) ? hideDst : showDst, true);
 
             bool trvlrSameSideAsCam = linked.SameSideOfPortal(linkedTravlr.transform.position, PortalCamPos);
-            linkedTravlr.SetSliceOffsetDst((trvlrSameSideAsCam) ? portalThickness : -portalThickness, true);
+            linkedTravlr.SetSliceOffsetDst((trvlrSameSideAsCam) ? portalThickness : -portalThickness, false);
         }
     }
 
@@ -261,11 +261,12 @@ public class Portal : MonoBehaviour
         }
     }
 
-    private void LateUpdate()
+    private void HandleTravellers()
     {
         for (int i = 0; i < travellers.Count; i++)
         {
             PortableObject traveller = travellers[i];
+            var m = linked.transform.localToWorldMatrix * transform.worldToLocalMatrix * traveller.transform.localToWorldMatrix;
 
             Vector3 offsetFromPortal = traveller.transform.position - transform.position;
             int portalSide = Math.Sign(Vector3.Dot(offsetFromPortal, transform.forward));
@@ -273,14 +274,27 @@ public class Portal : MonoBehaviour
 
             if (portalSide != portalSideOld)
             {
-                var m = linked.transform.localToWorldMatrix * transform.worldToLocalMatrix * traveller.transform.localToWorldMatrix;
+                var positionOld = traveller.transform.position;
+                var rotationOld = traveller.transform.rotation;
+                
                 traveller.Teleport(transform, linked.transform, m.GetColumn(3), m.rotation);
+                traveller.graphicsClone.transform.SetPositionAndRotation(positionOld, rotationOld);
 
                 linked.OnPortableEnter(traveller);
-                travellers.Remove(traveller);
+                travellers.RemoveAt(i);
                 i--;
-            } else traveller.previousOffsetFromPortal = offsetFromPortal;
+            }
+            else
+            {
+                traveller.graphicsClone.transform.SetPositionAndRotation(m.GetColumn(3), m.rotation);
+                traveller.previousOffsetFromPortal = offsetFromPortal;
+            }
         }
+    }
+
+    private void LateUpdate()
+    {
+        HandleTravellers();
     }
 
     private void OnValidate()

@@ -11,7 +11,8 @@ Shader "Custom/Slice"
 
     SubShader
     {
-        Tags { "RenderType" = "Opaque" "RenderPipeline" = "UniversalPipeline" }
+        Tags { "RenderType"="Geometry" "RenderPipeline" = "UniversalPipeline" "Queue" = "Geometry" "IgnoreProjector" = "True" }
+        LOD 200
 
         Pass
         {
@@ -21,6 +22,7 @@ Shader "Custom/Slice"
             #pragma fragment frag
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
 
             struct Attributes
             {
@@ -32,6 +34,7 @@ Shader "Custom/Slice"
             {
                 float4 positionHCS : SV_POSITION;
                 float2 uv : TEXCOORD0;
+                float3 positionWS : TEXCOORD1;
             };
 
             TEXTURE2D(_BaseMap);
@@ -51,6 +54,8 @@ Shader "Custom/Slice"
                 
                 OUT.positionHCS = TransformObjectToHClip(IN.positionOS.xyz);
                 OUT.uv = TRANSFORM_TEX(IN.uv, _BaseMap);
+                VertexPositionInputs posInputs = GetVertexPositionInputs(IN.positionOS.xyz);
+                OUT.positionWS = posInputs.positionWS;
                 return OUT;
             }
 
@@ -58,7 +63,7 @@ Shader "Custom/Slice"
             {                
                 half4 color = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, IN.uv) * _BaseColor;
                 float3 adjustedCentre = sliceCentre + sliceNormal * sliceOffset;
-                float3 offsetToSliceCentre = adjustedCentre - IN.positionHCS.xyz;
+                float3 offsetToSliceCentre = adjustedCentre - IN.positionWS;
                 clip(dot(offsetToSliceCentre, sliceNormal));
                 return color;
             }
