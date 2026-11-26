@@ -30,8 +30,8 @@ public class Portal : MonoBehaviour
         mainCam = Camera.current;
         portalCam = this.GetComponentInChildren<Camera>(true);
         portalCam.enabled = false;
-        mesh = this.GetComponent<MeshRenderer>();
-        meshFilter = this.GetComponent<MeshFilter>();
+        mesh = this.GetComponentInChildren<MeshRenderer>(true);
+        meshFilter = this.GetComponentInChildren<MeshFilter>(true);
         mesh.material.SetInt("displayMask", 1);
     }
 
@@ -171,7 +171,6 @@ public class Portal : MonoBehaviour
 
     private void OnTriggerEnter(Collider other)
     {
-        Debug.Log("Object " +  other.name + " enter trigger.");
         var traveller = other.GetComponent<PortableObject>();
         if (traveller) OnPortableEnter(traveller);
     }
@@ -183,19 +182,16 @@ public class Portal : MonoBehaviour
             traveller.EnterPortalCollider();
             traveller.previousOffsetFromPortal = traveller.transform.position - transform.position;
             travellers.Add(traveller);
-            Debug.Log(traveller.name + " enters portal.");
         }
     }
 
     private void OnTriggerExit(Collider other)
     {
-        Debug.Log("Object " + other.name + " exits trigger.");
         var traveller = other.GetComponent<PortableObject>();
         if (traveller && travellers.Contains(traveller))
         {
             traveller.ExitPortalCollider();
             travellers.Remove(traveller);
-            Debug.Log(traveller.name + " exits portal.");
         }
     }
 
@@ -207,19 +203,18 @@ public class Portal : MonoBehaviour
 
         foreach (var traveller in travellers)
         {
-            bool sameSidePortalAsCam = linked.SameSideOfPortal(traveller.transform.position, PortalCamPos);
+            bool sameSidePortalAsCam = SameSideOfPortal(traveller.transform.position, PortalCamPos);
             traveller.SetSliceOffsetDst((sameSidePortalAsCam) ? hideDst : showDst, false);
 
             int cloneLinkedPortalSide = -PortalSide(traveller.transform.position);
             bool cloneSameSideAsCam = linked.PortalSide(PortalCamPos) == cloneLinkedPortalSide;
-
             traveller.SetSliceOffsetDst((cloneSameSideAsCam) ? portalThickness : -portalThickness, true);
         }
 
         var camPortalOffset = PortalCamPos - transform.position;
         foreach (var linkedTravlr in linked.travellers)
         {
-            var travlrPos = linkedTravlr.graphicsObj.transform.position;
+            var travlrPos = linkedTravlr.transform.position;
             var clonePos = linkedTravlr.graphicsClone.transform.position;
 
             bool cloneSameSideAsCam = linked.PortalSide(travlrPos) != PortalSide(PortalCamPos);
@@ -243,11 +238,9 @@ public class Portal : MonoBehaviour
         float cloneSliceOffset = 0f;
         float portalThickness = mesh.transform.localScale.z;
 
-        bool mainCamSameSideAsTrvlr = SameSideOfPortal(mainCam.transform.position, traveller.transform.position);
-        if (!mainCamSameSideAsTrvlr) sliceOffset = -portalThickness;
+        if (!SameSideOfPortal(mainCam.transform.position, traveller.transform.position)) sliceOffset = -portalThickness;
 
-        bool mainCamSameSideAsClone = side != linked.PortalSide(mainCam.transform.position);
-        if (!mainCamSameSideAsClone) cloneSliceOffset = -portalThickness;
+        if (side == linked.PortalSide(mainCam.transform.position)) cloneSliceOffset = -portalThickness;
 
         for (int i = 0; i < traveller.materials.Length; i++)
         {
@@ -255,7 +248,7 @@ public class Portal : MonoBehaviour
             traveller.materials[i].SetVector("sliceNormal", sliceNormal);
             traveller.materials[i].SetFloat("sliceOffset", sliceOffset);
 
-            traveller.cloneMaterials[i].SetVector("sliceCenter", cloneSlicePos);
+            traveller.cloneMaterials[i].SetVector("sliceCentre", cloneSlicePos);
             traveller.cloneMaterials[i].SetVector("sliceNormal", cloneSliceNormal);
             traveller.cloneMaterials[i].SetFloat("sliceOffset", cloneSliceOffset);
         }

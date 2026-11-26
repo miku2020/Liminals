@@ -70,4 +70,5 @@ Shader "Custom/Slice"
             ENDHLSL
         }
     }
+    Fallback "Universal Render Pipeline/Lit"
 }
