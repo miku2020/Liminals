@@ -6,6 +6,7 @@ Auth: Semi
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -27,7 +28,7 @@ public class Portal : MonoBehaviour
 
     private void Awake()
     {   
-        mainCam = Camera.current;
+        mainCam = Camera.main;
         portalCam = this.GetComponentInChildren<Camera>(true);
         portalCam.enabled = false;
         mesh = this.GetComponentInChildren<MeshRenderer>(true);
@@ -182,6 +183,7 @@ public class Portal : MonoBehaviour
             traveller.EnterPortalCollider();
             traveller.previousOffsetFromPortal = traveller.transform.position - transform.position;
             travellers.Add(traveller);
+            UpdateCollisions(traveller, enter: true);
         }
     }
 
@@ -192,6 +194,7 @@ public class Portal : MonoBehaviour
         {
             traveller.ExitPortalCollider();
             travellers.Remove(traveller);
+            UpdateCollisions(traveller, enter: false);
         }
     }
 
@@ -282,6 +285,19 @@ public class Portal : MonoBehaviour
                 traveller.graphicsClone.transform.SetPositionAndRotation(m.GetColumn(3), m.rotation);
                 traveller.previousOffsetFromPortal = offsetFromPortal;
             }
+        }
+    }
+
+    private void UpdateCollisions(PortableObject traveller, bool enter)
+    {
+        foreach (var trvl in travellers)
+        {
+            if (trvl == traveller) continue;
+            if (enter && !SameSideOfPortal(traveller.transform.position, trvl.transform.position))
+            {
+                Physics.IgnoreCollision(traveller.GetComponent<Collider>(), trvl.GetComponent<Collider>(), true);
+            }
+            else Physics.IgnoreCollision(traveller.GetComponent<Collider>(), trvl.GetComponent<Collider>(), false);
         }
     }
 

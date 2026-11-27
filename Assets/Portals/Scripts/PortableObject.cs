@@ -5,6 +5,7 @@ Auth: Semi
 */
 using UnityEngine;
 using System.Collections.Generic;
+using System.Linq;
 
 [RequireComponent(typeof(Rigidbody))]
 public class PortableObject : MonoBehaviour
@@ -14,34 +15,39 @@ public class PortableObject : MonoBehaviour
 
     public Material[] materials {  get; set; }
     public Material[] cloneMaterials { get; set; }
+    private Rigidbody rigidbody;
 
-    private void Start()
+    private void Awake()
     {
+        rigidbody = GetComponent<Rigidbody>();
     }
 
     public virtual void Teleport(Transform fromPortal, Transform toPortal, Vector3 pos, Quaternion rot)
     {
-        Vector3 relativeVelocity;
-
+        rigidbody.linearVelocity = Quaternion.FromToRotation(fromPortal.forward, toPortal.forward) * rigidbody.linearVelocity;
         transform.position = pos;
         transform.rotation = rot;
 
     }
 
     public virtual void EnterPortalCollider() 
-    {
+    {        
+        
         if (graphicsClone == null)
-        {
-            graphicsClone = Instantiate(this.gameObject);
-            Destroy(graphicsClone.GetComponent<PortableObject>());
-            Destroy(graphicsClone.GetComponent<Rigidbody>());
-            Destroy(graphicsClone.GetComponent<Collider>());            
+        {            
+            graphicsClone = new(this.name + " graphic clone");
+            var meshFilter = graphicsClone.AddComponent<MeshFilter>();
+            var meshRend = graphicsClone.AddComponent<MeshRenderer>();
+            meshFilter.mesh = this.GetComponent<MeshFilter>().sharedMesh;
+            meshRend.SetMaterials(this.GetComponent<MeshRenderer>().sharedMaterials.ToList());
+            
+
             graphicsClone.transform.parent = this.gameObject.transform.parent;
             graphicsClone.transform.localScale = this.gameObject.transform.localScale;
             materials = GetMaterials(this.gameObject);
             cloneMaterials = GetMaterials(graphicsClone);
         }
-        else graphicsClone.SetActive(true);
+        else  graphicsClone.SetActive(true);
     }
 
     public virtual void ExitPortalCollider() 
